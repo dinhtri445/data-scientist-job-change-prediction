@@ -278,6 +278,20 @@ def create_experience_level(exp_col_float):
     
     return levels
 
+def create_stability_ratio(last_job_col, exp_col):
+    """
+    Tạo chỉ số ổn định = last_new_job / experience
+    """
+    numerator = last_job_col.astype(float) 
+    denominator = exp_col.astype(float)  
+    
+    ratio = np.zeros(numerator.shape, dtype=float)
+    
+    mask = denominator > 0
+    # Thực hiện chia (Vector hóa)
+    ratio[mask] = numerator[mask] / denominator[mask]
+    
+    return np.round(ratio, 2)
 
 #=====================Feature Engineering=====================
 def min_max_scaling(col):
