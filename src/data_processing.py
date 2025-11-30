@@ -367,52 +367,46 @@ def calculate_t_test(feature_col, target_col):
     
     return t_stat
 #=====================Modeling=====================
-# --- 1. HÀM CHIA TẬP TRAIN/TEST (NumPy Only) ---
+# Hàm chia tập train/test
 def train_test_split_numpy(X, y, test_size=0.2, seed=None):
     """
     Chia dữ liệu thành tập Train và Test ngẫu nhiên.
-    Thay thế: sklearn.model_selection.train_test_split
     """
     if seed:
         np.random.seed(seed)
-    
-    # 1. Tráo đổi ngẫu nhiên chỉ số (Shuffle Indices)
+
     n_samples = X.shape[0]
     indices = np.arange(n_samples)
     np.random.shuffle(indices)
     
-    # 2. Tính điểm cắt
     test_count = int(n_samples * test_size)
     train_count = n_samples - test_count
     
-    # 3. Phân chia index
+    # Phân chia index
     train_idx = indices[:train_count]
     test_idx = indices[train_count:]
     
-    # 4. Cắt dữ liệu
+    # Cắt dữ liệu
     X_train, X_test = X[train_idx], X[test_idx]
     y_train, y_test = y[train_idx], y[test_idx]
     
     return X_train, X_test, y_train, y_test
 
-# --- 2. HÀM MÃ HÓA (Encoding) ---
+# Hàm mã hóa (Encoding)
 def label_encode_numpy(column):
     """
     Chuyển đổi cột chữ thành số (0, 1, 2...).
-    Thay thế: sklearn.preprocessing.LabelEncoder
     """
-    # Tìm các giá trị duy nhất và sắp xếp
+
     uniques = np.unique(column)
-    # Tạo từ điển ánh xạ: VD {'Male': 0, 'Female': 1}
+   
     mapping = {val: i for i, val in enumerate(uniques)}
     
-    # Áp dụng ánh xạ (Vector hóa bằng cách dùng list comprehension hoặc loop nhanh)
-    # Lưu ý: Tạo mảng số nguyên
     encoded_col = np.array([mapping[val] for val in column], dtype=int)
     
     return encoded_col, mapping
 
-# --- 3. HÀM CHUẨN HÓA Z-SCORE (Standardization) ---
+# Hàm chuẩn hóa Z-SCORE (Standardization)
 def standard_scaler_numpy(X_train, X_test):
     """
     Đưa dữ liệu về phân phối chuẩn (Mean=0, Std=1).
@@ -422,7 +416,7 @@ def standard_scaler_numpy(X_train, X_test):
     mean = np.mean(X_train, axis=0)
     std = np.std(X_train, axis=0)
     
-    # Tránh chia cho 0 (nếu cột nào có giá trị không đổi -> std=0)
+    # Tránh chia cho 0 
     std[std == 0] = 1.0 
     
     # Áp dụng công thức: (X - mean) / std
@@ -431,7 +425,7 @@ def standard_scaler_numpy(X_train, X_test):
     
     return X_train_scaled, X_test_scaled
 
-# --- 4. HÀM CHUẨN HÓA MIN-MAX (Normalization) ---
+# Hàm chuẩn hóa MIN-MAX (Normalization)
 def min_max_scaler_numpy(X_train, X_test):
     """
     Đưa dữ liệu về khoảng [0, 1].
@@ -448,3 +442,103 @@ def min_max_scaler_numpy(X_train, X_test):
     X_test_scaled = (X_test - min_val) / range_val
     
     return X_train_scaled, X_test_scaled
+
+# Hàm giảm chiều dữ liệu
+def pca_numpy(X_train, X_test, n_components=None):
+    """
+    Thực hiện PCA để giảm chiều dữ liệu.
+    Nguyên tắc: Fit trên Train, Transform trên cả Train và Test.
+    """
+    # Tính ma trận hiệp phương sai (Covariance Matrix) của TRAIN
+    n_samples = X_train.shape[0]
+    covariance_matrix = np.dot(X_train.T, X_train) / (n_samples - 1)
+    
+    # Phân rã trị riêng, vector riêng (Eigen decomposition)
+    eigen_values, eigen_vectors = np.linalg.eigh(covariance_matrix)
+    
+    # Sắp xếp Vector riêng theo thứ tự giảm dần của Trị riêng
+    sorted_index = np.argsort(eigen_values)[::-1]
+    sorted_eigenvectors = eigen_vectors[:, sorted_index]
+    sorted_eigenvalues = eigen_values[sorted_index]
+    
+    # Chọn k thành phần (n_components)
+    if n_components is None:
+        # Nếu không chọn, giữ lại số thành phần giải thích 95% phương sai
+        total_var = np.sum(sorted_eigenvalues)
+        explained_variance_ratio = sorted_eigenvalues / total_var
+        cumulative_variance = np.cumsum(explained_variance_ratio)
+        n_components = np.argmax(cumulative_variance >= 0.95) + 1
+        print(f"PCA tự động chọn {n_components} thành phần (giữ lại 95% thông tin).")
+        
+    eigenvector_subset = sorted_eigenvectors[:, 0:n_components]
+    
+    # Chiếu dữ liệu lên không gian mới (Transform)
+    X_train_pca = np.dot(X_train, eigenvector_subset)
+    X_test_pca = np.dot(X_test, eigenvector_subset)
+    
+    return X_train_pca, X_test_pca
+
+# Dùng SMOTE để cân bằng dữ liệu
+def smote_numpy(X, y, k_neighbors=5, random_state=42):
+    """
+    Thực hiện SMOTE (Synthetic Minority Over-sampling Technique) dùng NumPy.
+    """
+    np.random.seed(random_state)
+    
+    # Tách nhóm thiểu số (Class 1) và đa số (Class 0)
+    X_minority = X[y == 1]
+    X_majority = X[y == 0]
+    
+    n_minority = len(X_minority)
+    n_majority = len(X_majority)
+    
+    # Tính số lượng mẫu cần sinh thêm (để cân bằng 50-50)
+    n_synthetic = n_majority - n_minority
+    
+    if n_synthetic <= 0:
+        return X, y # Không cần SMOTE nếu Class 1 đã nhiều hơn
+    
+    print(f"SMOTE: Đang sinh thêm {n_synthetic} mẫu giả lập...")
+    
+    synthetic_samples = []
+    
+    # Vòng lặp sinh dữ liệu
+    # Duyệt qua các mẫu gốc để sinh mẫu mới
+    # Tính số lượng mẫu mới cần sinh ra từ MỖI mẫu cũ
+    for _ in range(n_synthetic):
+        # Chọn ngẫu nhiên 1 điểm gốc (Parent) từ nhóm thiểu số
+        idx = np.random.randint(0, n_minority)
+        sample = X_minority[idx]
+        
+        # Tìm k hàng xóm gần nhất (KNN logic)
+        distances = np.sqrt(np.sum((X_minority - sample)**2, axis=1))
+        
+        # Lấy index của k điểm gần nhất
+        neighbor_indices = np.argsort(distances)[1:k_neighbors+1]
+        
+        # Chọn ngẫu nhiên 1 hàng xóm (Neighbor)
+        random_neighbor_idx = np.random.choice(neighbor_indices)
+        neighbor = X_minority[random_neighbor_idx]
+        
+        # Tạo điểm mới (Interpolation)
+        # Công thức: New = Old + (Neighbor - Old) * random(0, 1)
+        diff = neighbor - sample
+        gap = np.random.rand() 
+        new_sample = sample + (diff * gap)
+        
+        synthetic_samples.append(new_sample)
+        
+    # Gộp lại thành dữ liệu mới
+    X_synthetic = np.array(synthetic_samples)
+    y_synthetic = np.ones(len(X_synthetic))
+    
+    # Ghép với dữ liệu gốc (Bao gồm cả X_majority và X_minority cũ)
+    X_final = np.vstack((X_majority, X_minority, X_synthetic))
+    y_final = np.hstack((np.zeros(n_majority), np.ones(n_minority), y_synthetic))
+    
+    # Xáo trộn (Shuffle)
+    shuffle_idx = np.arange(len(y_final))
+    np.random.shuffle(shuffle_idx)
+    
+    print(f"Hoàn tất SMOTE. Kích thước mới: {X_final.shape}")
+    return X_final[shuffle_idx], y_final[shuffle_idx]
