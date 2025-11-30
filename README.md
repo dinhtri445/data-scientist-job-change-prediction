@@ -1,0 +1,14 @@
+- `enrollee_id` : Mã định danh ứng viên
+- `city`: Mã thành phố
+- `city_ development _index`: Chỉ số phát triển thành phố
+- `gender`: Giới tính
+- `relevent_experience`: Kinh nghiệm liên quan
+- `enrolled_university`: Hình thức đào tạo đại học
+- `education_level`: Trình độ học vấn
+- `major_discipline`: Chuyên ngành đào tạo
+- `experience`: Tổng số năm kinh nghiệm
+- `company_size`: Quy mô công ty
+- `company_type`: Loại hình công ty
+- `last_new_job`: Thời gian từ lần chuyển việc cuối
+- `training_hours`: Số giờ đào tạo
+- `target`: 0 – Không có ý định chuyển việc, 1 – Đang tìm kiếm/muốn chuyển đổi công việc.

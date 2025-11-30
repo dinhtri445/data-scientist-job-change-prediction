@@ -293,49 +293,158 @@ def create_stability_ratio(last_job_col, exp_col):
     
     return np.round(ratio, 2)
 
-#=====================Feature Engineering=====================
-def min_max_scaling(col):
+#=====================Kiểm định giả thuyết thống kê=====================
+# Hàm tính Chi-Square (Dành cho biến Phân loại - Categorical)
+def calculate_chi_square_test(feature_col, target_col):
     """
-    Đưa dữ liệu về khoảng [0, 1]
-    Công thức: (X - min) / (max - min)
+    Tính thống kê Chi-bình phương (Chi-Square Statistic) để kiểm định tính độc lập.
     """
-    # Lưu ý: col ở đây phải là X_train hoặc X_test
-    min_val = np.min(col)
-    max_val = np.max(col)
+    # Tạo bảng chéo thủ công bằng NumPy
+    categories = np.unique(feature_col)
+    target_groups = np.unique(target_col)
     
-    if max_val - min_val == 0: return col # Tránh chia cho 0
+    observed = np.array([
+        [np.sum((feature_col == cat) & (target_col == tgt)) for tgt in target_groups]
+        for cat in categories
+    ])
     
-    return (col - min_val) / (max_val - min_val)
+    # Tính các tổng (Row sums, Col sums, Total)
+    row_sums = observed.sum(axis=1)
+    col_sums = observed.sum(axis=0)
+    total = observed.sum()
+    
+    # Tính bảng tần số kỳ vọng (Expected Frequencies)
+    # Dùng phép nhân ngoài (Outer product) để tạo ma trận nhanh chóng
+    expected = np.outer(row_sums, col_sums) / total
+    
+    # Tránh lỗi chia cho 0
+    with np.errstate(divide='ignore', invalid='ignore'):
+        chi2_components = (observed - expected)**2 / expected
+        chi2_components[~np.isfinite(chi2_components)] = 0 # Thay thế nan/inf bằng 0
+        
+    chi2_score = chi2_components.sum()
+    
+    # Tính bậc tự do 
+    dof = (len(categories) - 1) * (len(target_groups) - 1)
+    
+    return chi2_score, dof
 
-def log_transformation(col):
-    """
-    Giảm độ lệch của dữ liệu.
-    Sử dụng log1p (log(1+x)) để tránh lỗi log(0) = -vocung
-    """
-    return np.log1p(col)
+# Hàm tính T-Test (Dành cho biến Số - Numerical)
+def calculate_t_test(feature_col, target_col):
+    # Chuyển đổi dữ liệu sang float để tính toán 
+    try:
+        feature_float = feature_col.astype(float)
+        target_float = target_col.astype(float)
+    except ValueError:
+        print("Lỗi: Dữ liệu đầu vào không phải là số hợp lệ.")
+        return 0.0
 
-def decimal_scaling(col):
-    """
-    Công thức: x / 10^j (với j là số chữ số của giá trị lớn nhất)
-    Ví dụ: 10005 -> chia cho 10^5 -> 0.10005
-    """
-    max_val = np.max(np.abs(col))
-    if max_val == 0: return col
+    # Tách dữ liệu thành 2 nhóm dựa trên Target (0 và 1)
+    group0 = feature_float[target_float == 0]
+    group1 = feature_float[target_float == 1]
     
-    # Tìm số mũ j (số chữ số)
-    j = np.ceil(np.log10(max_val))
+    # Tính các tham số thống kê cơ bản (Mean, Variance, N)
+    n0, n1 = len(group0), len(group1)
     
-    return col / (10**j)
+    # Nếu một trong hai nhóm rỗng, không thể tính toán
+    if n0 == 0 or n1 == 0:
+        return 0.0
+        
+    mean0, mean1 = np.mean(group0), np.mean(group1)
+    
+    var0, var1 = np.var(group0, ddof=1), np.var(group1, ddof=1)
+    
+    # ính Sai số chuẩn (Standard Error - SE)
+    # Công thức: sqrt( s1^2/n1 + s2^2/n2 )
+    se = np.sqrt((var0/n0) + (var1/n1))
+    
+    # Tính T-score
+    # Tránh lỗi chia cho 0
+    if se == 0:
+        return 0.0
+        
+    t_stat = (mean0 - mean1) / se
+    
+    return t_stat
+#=====================Modeling=====================
+# --- 1. HÀM CHIA TẬP TRAIN/TEST (NumPy Only) ---
+def train_test_split_numpy(X, y, test_size=0.2, seed=None):
+    """
+    Chia dữ liệu thành tập Train và Test ngẫu nhiên.
+    Thay thế: sklearn.model_selection.train_test_split
+    """
+    if seed:
+        np.random.seed(seed)
+    
+    # 1. Tráo đổi ngẫu nhiên chỉ số (Shuffle Indices)
+    n_samples = X.shape[0]
+    indices = np.arange(n_samples)
+    np.random.shuffle(indices)
+    
+    # 2. Tính điểm cắt
+    test_count = int(n_samples * test_size)
+    train_count = n_samples - test_count
+    
+    # 3. Phân chia index
+    train_idx = indices[:train_count]
+    test_idx = indices[train_count:]
+    
+    # 4. Cắt dữ liệu
+    X_train, X_test = X[train_idx], X[test_idx]
+    y_train, y_test = y[train_idx], y[test_idx]
+    
+    return X_train, X_test, y_train, y_test
 
-def z_score_standardization(col):
+# --- 2. HÀM MÃ HÓA (Encoding) ---
+def label_encode_numpy(column):
     """
-    Công thức: (X - mean) / std
+    Chuyển đổi cột chữ thành số (0, 1, 2...).
+    Thay thế: sklearn.preprocessing.LabelEncoder
     """
-    mean = np.mean(col)
-    std = np.std(col)
+    # Tìm các giá trị duy nhất và sắp xếp
+    uniques = np.unique(column)
+    # Tạo từ điển ánh xạ: VD {'Male': 0, 'Female': 1}
+    mapping = {val: i for i, val in enumerate(uniques)}
     
-    if std == 0: return np.zeros_like(col)
+    # Áp dụng ánh xạ (Vector hóa bằng cách dùng list comprehension hoặc loop nhanh)
+    # Lưu ý: Tạo mảng số nguyên
+    encoded_col = np.array([mapping[val] for val in column], dtype=int)
     
-    return (col - mean) / std
+    return encoded_col, mapping
 
-#PCA
+# --- 3. HÀM CHUẨN HÓA Z-SCORE (Standardization) ---
+def standard_scaler_numpy(X_train, X_test):
+    """
+    Đưa dữ liệu về phân phối chuẩn (Mean=0, Std=1).
+    Quan trọng: Tính Mean/Std trên Train, áp dụng cho cả Train và Test.
+    """
+    # Tính tham số trên tập TRAIN
+    mean = np.mean(X_train, axis=0)
+    std = np.std(X_train, axis=0)
+    
+    # Tránh chia cho 0 (nếu cột nào có giá trị không đổi -> std=0)
+    std[std == 0] = 1.0 
+    
+    # Áp dụng công thức: (X - mean) / std
+    X_train_scaled = (X_train - mean) / std
+    X_test_scaled = (X_test - mean) / std
+    
+    return X_train_scaled, X_test_scaled
+
+# --- 4. HÀM CHUẨN HÓA MIN-MAX (Normalization) ---
+def min_max_scaler_numpy(X_train, X_test):
+    """
+    Đưa dữ liệu về khoảng [0, 1].
+    """
+    # Tính tham số trên tập TRAIN
+    min_val = np.min(X_train, axis=0)
+    max_val = np.max(X_train, axis=0)
+    
+    range_val = max_val - min_val
+    range_val[range_val == 0] = 1.0 # Tránh chia cho 0
+    
+    # Công thức: (X - min) / (max - min)
+    X_train_scaled = (X_train - min_val) / range_val
+    X_test_scaled = (X_test - min_val) / range_val
+    
+    return X_train_scaled, X_test_scaled
